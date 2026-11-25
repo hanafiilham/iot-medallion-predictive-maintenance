@@ -1,0 +1,75 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: iot_mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: iot_timescaledb
+    environment:
+      POSTGRES_USER: de_user
+      POSTGRES_PASSWORD: de_password
+      POSTGRES_DB: iot_telemetry
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - tsdb_data:/var/lib/postgresql/data
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: iot_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - timescaledb
+
+  processor:
+    build: ./src/processor
+    container_name: iot_processor
+    environment:
+      - MQTT_HOST=mosquitto
+      - DB_HOST=timescaledb
+    depends_on:
+      - mosquitto
+      - timescaledb
+    restart: on-failure
+
+  simulator:
+    build: ./src/simulator
+    container_name: iot_simulator
+    environment:
+      - MQTT_HOST=mosquitto
+    depends_on:
+      - mosquitto
+      - processor
+    restart: on-failure
+
+  predictor:
+    build: ./src/predictor
+    container_name: iot_predictor
+    environment:
+      - DB_HOST=timescaledb
+      - DB_PORT=5432
+      - DB_NAME=iot_telemetry
+      - DB_USER=de_user
+      - DB_PASSWORD=de_password
+    volumes:
+      - ./src:/app/src
+      - ./models:/app/models
+    depends_on:
+      - timescaledb
+      - processor
+    restart: on-failure
+
+volumes:
+  tsdb_data:
+
+ 
